@@ -4,6 +4,7 @@ from tensorly.decomposition import non_negative_parafac
 from scipy.optimize import linear_sum_assignment
 from itertools import combinations
 import tensorly as tl
+import torch
 
 tl.set_backend('pytorch')
 
@@ -165,7 +166,7 @@ def stability_plot(ranks,stabilities,stds):
     plt.figure(figsize=(10,6))
 
 
-    plt.errorbar(ranks,stabilities,stds,ls='',marker='o',capsize=4)
+    plt.errorbar(ranks,stabilities,stds,marker='o',capsize=4)
 
     plt.xlabel("Rank",fontsize=14)
     plt.ylabel("Stability (a.u.)",fontsize=14)
