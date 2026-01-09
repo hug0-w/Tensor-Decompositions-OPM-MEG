@@ -96,6 +96,14 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     if verbose:
         print(f"--- Testing Rank {rank} with {n_repeats} repeats ---")
 
+    # Identify the device of the input data
+    device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
+
+    # Ensure mask is on the same device if provided
+    if mask is not None and hasattr(mask, 'to'):
+        mask = mask.to(device)
+
+
     # Empty list for factors
     run_factors = []
 
@@ -114,7 +122,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
 
         # Store results
         _, factors = cp_tensor
-        run_factors.append(factors)
+        factors_cpu = [f.detach().cpu().numpy() for f in factors]
+        run_factors.append(factors_cpu)
 
     # Empty list for scores
     pairwise_scores = []
