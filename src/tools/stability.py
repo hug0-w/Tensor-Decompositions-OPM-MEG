@@ -122,7 +122,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
 
         # Store results
         _, factors = cp_tensor
-        factors_np = [tl.to_numpy(f) for f in factors]
+        factors_np = [f.detach().cpu().numpy() for f in factors]
         run_factors.append(factors_np)
 
     # Empty list for scores
