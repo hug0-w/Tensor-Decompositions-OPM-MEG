@@ -71,7 +71,7 @@ def optimal_score(similiarity_mat):
     return opt_score
 
 
-def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
+def rank_stability(tensor_data, rank, mask=None, n_repeats=10,subsample_fraction=0.8, verbose=0):
     '''
     Evaluates the stability of CP decomposition at a given rank.
     
@@ -105,18 +105,23 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     # Empty list for factors
     run_factors = []
 
+
+    ntrials = tensor_data.shape[0]
+    nsubsample = int(ntrials * subsample_fraction)
+
     # Loop over n_repeats
     for i in range(n_repeats):
         
-        ntrials = tensor_data.shape[0]
-        indices = torch.randperm(ntrials)[:int(ntrials*0.8)]
+        
+        indices = torch.randperm(ntrials)[:nsubsample].to(device)
         subsampled_data = tensor_data[indices]
+        sub_mask = mask[indices] if mask is not None else None
         
         cp_tensor = non_negative_parafac(
             subsampled_data,
             rank=rank,
             init="random",
-            mask=mask,
+            mask=sub_mask,
             n_iter_max=5000,
             tol=1e-9,
             random_state=i  # varies per run
@@ -125,8 +130,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
         # Store results
         _, factors = cp_tensor
         
-        factors_cpu = [f.detach().cpu().numpy() for f in factors]
-        run_factors.append(factors_cpu)
+        feature_factors = [f.detach().cpu().numpy() for f in factors[1:]]
+        run_factors.append(feature_factors)
 
     # Empty list for scores
     pairwise_scores = []

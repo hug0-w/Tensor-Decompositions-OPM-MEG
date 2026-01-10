@@ -104,7 +104,7 @@ def plot_factors(A, B, C, D):
         axes[3].set_xlabel('Time (s)')
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95]) 
-        plt.show
+    
     
     
 def plot_single_mode(factor_matrix, mode_name):
