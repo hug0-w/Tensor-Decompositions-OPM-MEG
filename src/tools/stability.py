@@ -167,7 +167,7 @@ def stability_plot(ranks,stabilities,stds):
     plt.figure(figsize=(10,6))
 
 
-    plt.errorbar(ranks,stabilities,stds,marker='o',capsize=4)
+    plt.errorbar(ranks,stabilities,stds,marker='o',capsize=4, label='ALS Stabilty Score')
 
     plt.xlabel("Rank",fontsize=14)
     plt.ylabel("Stability (a.u.)",fontsize=14)
@@ -178,3 +178,4 @@ def stability_plot(ranks,stabilities,stds):
     plt.grid(alpha=0.5,ls='--')
     plt.minorticks_on()
     plt.xticks(ranks)
+    plt.legend(framealpha=0,loc='upper right')
