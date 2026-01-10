@@ -109,7 +109,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     for i in range(n_repeats):
         
         ntrials = tensor_data.shape[0]
-        indices = torch.randperm(ntrials)[:int(ntrials*0.8)]
+        indices = torch.randperm(ntrials)[:int(ntrials*0.9)]
         subsampled_data = tensor_data[indices]
         
         cp_tensor = non_negative_parafac(
