@@ -24,6 +24,7 @@ def similarity_matrix(factors1, factors2):
         Cosine similarity matrix.
 
     '''
+    # Grab the width of the first factor matrix (the number of ranks)
     rank = factors1[0].shape[1]
     num_modes = len(factors1)
 
@@ -60,12 +61,8 @@ def optimal_score(similiarity_mat):
         Optimal matching score.
 
     '''
-
-    # Find cost
-    cost = -np.abs(similiarity_mat)
-
     # Hungarian Algo
-    row_ind, col_ind = linear_sum_assignment(cost)
+    row_ind, col_ind = linear_sum_assignment(similiarity_mat, maximize=True)
 
     # Get maximised similarity scores and find average
     matched_scores = similiarity_mat[row_ind, col_ind]
