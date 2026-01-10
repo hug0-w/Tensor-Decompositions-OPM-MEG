@@ -123,7 +123,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10,subsample_fraction
             init="random",
             mask=sub_mask,
             n_iter_max=5000,
-            tol=1e-9,
+            tol=1e-6,
             random_state=i  # varies per run
         )
 
