@@ -73,7 +73,7 @@ def similarity_sore(cp_tensor_A, cp_tensor_B):
     
     rank = len(lambdaA)
     
-    sim_matrix = np.zeros(rank,rank)
+    sim_matrix = np.zeros((rank,rank))
     
     for i in range(rank):
         for j in range(rank):
