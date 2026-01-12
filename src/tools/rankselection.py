@@ -127,7 +127,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
             else:
                 diff = tensor_data - rec_tensor
 
-            error = torch.norm(diff).item()
+            error = torch.norm(diff)
+            error = error.to('cpu').numpy()
             errors.append(error)
 
         except Exception as e:
