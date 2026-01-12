@@ -115,14 +115,9 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
                 random_state=i  # Ensure different random init
             )
 
-            # Move to CPU/numpy for analysis
             weights, factors = cp_tensor
-            numpy_factors = [f.detach().cpu().numpy(
-            ) if torch.is_tensor(f) else f for f in factors]
-            numpy_weights = weights.detach().cpu().numpy(
-            ) if torch.is_tensor(weights) else weights
-
-            norm_weights, norm_factors = cp_normalize((numpy_weights, numpy_factors))
+            
+            norm_weights, norm_factors = cp_normalize((weights, factors))
             models.append((norm_weights, norm_factors))
 
             # Compute Reconstruction Error to find the best model
