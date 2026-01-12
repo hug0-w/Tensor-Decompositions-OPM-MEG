@@ -58,7 +58,7 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
                 else np.array(f, dtype=np.float32) for f in factorsB]
     
     
-    rank = factorsA[0].shape[1]
+    rank = factorsA[0].shape[1]      
 
     sim_matrix = np.zeros((rank, rank),dtype=np.float32)
 
@@ -83,7 +83,7 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     # Hungarian Algo
     row_ind, col_ind = linear_sum_assignment(sim_matrix, maximize=True)
 
-    score = sim_matrix[row_ind, col_ind].mean(np.float32(1.0))
+    score = sim_matrix[row_ind, col_ind].mean(dtype=np.float32)
 
     return score
 
