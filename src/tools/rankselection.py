@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from tensorly.decomposition import non_negative_parafac
 from scipy.optimize import linear_sum_assignment
 from itertools import combinations
+from tensorly.cp_tensor import cp_normalize
 import tensorly as tl
 import torch
 
@@ -26,39 +27,9 @@ def rel_error(full, cp_tensor):
     return numerator / denominator
 
 
-def normalise_cp_tensor(cp_tensor):
-    '''
-    Docstring for normalise_cp_tensor
-
-    :param cp_tensor: Description
-    '''
-
-    # Get weights/ factors
-    weights, factors = cp_tensor
-
-    # Take copies
-    weights = weights.copy()
-    new_factors = [f.copy() for f in factors]
-
-    # Get rank of current decomposition
-    rank = weights.shape[0]
-
-    for r in range(rank):
-        for mode in len(new_factors):
-
-            # Get norm of r-th component
-            norm = np.linalg.nrom(new_factors[mode][:, r])
-
-            weights[r] *= norm
-
-            # Normalise factor vectors for the r-th component
-            if norm > 0:
-                new_factors[mode][:, r] /= norm
-
-    return weights, new_factors
 
 
-def similarity_sore(cp_tensor_A, cp_tensor_B):
+def similarity_score(cp_tensor_A, cp_tensor_B):
     '''
     Calculate similarity score
        Parameters:
@@ -68,19 +39,21 @@ def similarity_sore(cp_tensor_A, cp_tensor_B):
         List of factor matrices from the second run.
     '''
 
-    lambdaA, factorsA = cp_tensor_A
-    lambdaB, factorsB = cp_tensor_B
+    lambdaA, factorsA = cp_normalize(cp_tensor_A)
+    lambdaB, factorsB = cp_normalize(cp_tensor_B)
 
-    rank = len(lambdaA)
+    rank = factorsA[0].shape[1]
 
     sim_matrix = np.zeros((rank, rank))
 
     for i in range(rank):
         for j in range(rank):
 
-            weights_score = 1 - \
-                (np.abs(lambdaA[i] - lambdaB[j]) /
-                 max(lambdaA[i], lambdaB[j], 1e-16))
+            max_lam = max(lambdaA[i], lambdaB[j])
+            if max_lam == 0:
+                weight_score = 1.0 # Both are zero
+            else:
+                weight_score = 1 - (np.abs(lambdaA[i] - lambdaB[j]) / max_lam)
 
             factor_score = 1.0
             for mode in range(len(factorsA)):
@@ -89,7 +62,7 @@ def similarity_sore(cp_tensor_A, cp_tensor_B):
 
                 factor_score *= dot_prod
 
-            sim_matrix[i, j] = weights_score * factor_score
+            sim_matrix[i, j] = weight_score * factor_score
 
     # Hungarian Algo
     row_ind, col_ind = linear_sum_assignment(sim_matrix, maximize=True)
@@ -137,8 +110,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
                 rank=rank,
                 init="random",
                 mask=mask,
-                n_iter_max=5000,
-                tol=1e-7,
+                n_iter_max=2000,
+                tol=1e-6,
                 random_state=i  # Ensure different random init
             )
 
@@ -149,8 +122,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
             numpy_weights = weights.detach().cpu().numpy(
             ) if torch.is_tensor(weights) else weights
 
-            # Store model
-            models.append((numpy_weights, numpy_factors))
+            norm_weights, norm_factors = cp_normalize((numpy_weights, numpy_factors))
+            models.append((norm_weights, norm_factors))
 
             # Compute Reconstruction Error to find the best model
             rec_tensor = tl.cp_to_tensor((weights, factors))
@@ -177,10 +150,9 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     similarities = []
     for i, model in enumerate(models):
         if i == best_idx:
-            # The similarity of the best model to itself is 1.0
             similarities.append(1.0)
         else:
-            score = similarity_sore(best_model, model)
+            score = similarity_score(best_model, model)
             similarities.append(score)
 
     mean_stability = np.mean(similarities)
@@ -220,18 +192,23 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
 
              relative_err = rel_error(tensor_data, cp_tensor)
 
+
+
              relative_err = relative_err.to('cpu').numpy()
 
-             variance = (1 - relative_err)
+
+             variance = (1 - relative_err**2)
             
              variances.append(variance)
              
         except Exception as e:
             print(f"Run {i} failed: {e}") 
     
-    variance_final = np.mean(variances)
+    mean_variance = np.mean(variances)
+    std_variance = np.std(variances)
     
-    return variance_final
+    return mean_variance, std_variance
+    
         
     
             
