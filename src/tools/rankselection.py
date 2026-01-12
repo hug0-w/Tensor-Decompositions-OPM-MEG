@@ -128,7 +128,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
                 diff = tensor_data - rec_tensor
 
             error = torch.norm(diff)
-            error = error.to('cpu').numpy()
+            error = error.detach().cpu().numpy()
             errors.append(error)
 
         except Exception as e:
@@ -188,7 +188,7 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
 
 
 
-             relative_err = relative_err.to('cpu').numpy()
+             relative_err = relative_err.detach().cpu().numpy()
 
 
              variance = (1 - relative_err**2)
