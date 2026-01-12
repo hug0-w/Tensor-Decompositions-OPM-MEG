@@ -42,6 +42,16 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     lambdaA, factorsA = cp_normalize(cp_tensor_A)
     lambdaB, factorsB = cp_normalize(cp_tensor_B)
 
+    # --- FIX: Convert tensors to numpy arrays on CPU ---
+    if torch.is_tensor(lambdaA):
+        lambdaA = lambdaA.detach().cpu().numpy()
+    if torch.is_tensor(lambdaB):
+        lambdaB = lambdaB.detach().cpu().numpy()
+
+    factorsA = [f.detach().cpu().numpy() if torch.is_tensor(f) else f for f in factorsA]
+    factorsB = [f.detach().cpu().numpy() if torch.is_tensor(f) else f for f in factorsB]
+    
+    
     rank = factorsA[0].shape[1]
 
     sim_matrix = np.zeros((rank, rank))
@@ -117,8 +127,11 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
             weights, factors = cp_tensor
             
             norm_weights, norm_factors = cp_normalize((weights, factors))
-            models.append((norm_weights, norm_factors))
-
+            cpu_weights = norm_weights.detach().cpu()
+            cpu_factors = [f.detach().cpu() for f in norm_factors]
+            models.append((cpu_weights, cpu_factors))
+     
+     
             # Compute Reconstruction Error to find the best model
             rec_tensor = tl.cp_to_tensor((weights, factors))
 
