@@ -109,7 +109,6 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
                 tensor_data,
                 rank=rank,
                 init="random",
-                mask=mask,
                 n_iter_max=2000,
                 tol=1e-6,
                 random_state=i  # Ensure different random init
@@ -178,7 +177,6 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
                 tensor_data,
                 rank=rank,
                 init="random",
-                mask=mask,
                 n_iter_max=1000,
                 tol=1e-5,
                 random_state=i  # Ensure different random init
