@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from tensorly.decomposition import non_negative_parafac
+from tensorly.decomposition import non_negative_parafac_hals
 from scipy.optimize import linear_sum_assignment
 from itertools import combinations
 from tensorly.cp_tensor import cp_normalize
@@ -105,7 +105,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     for i in range(n_repeats):
 
         try:
-            cp_tensor = non_negative_parafac(
+            cp_tensor = non_negative_parafac_hals(
                 tensor_data,
                 rank=rank,
                 init="random",
@@ -174,7 +174,7 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     for i in range(n_repeats):
 
         try:
-             cp_tensor = non_negative_parafac(
+             cp_tensor = non_negative_parafac_hals(
                 tensor_data,
                 rank=rank,
                 init="random",
