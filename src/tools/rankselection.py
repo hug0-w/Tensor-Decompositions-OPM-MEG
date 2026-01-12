@@ -25,71 +25,81 @@ def rel_error(full, cp_tensor):
     
     return numerator / denominator
 
-
-
-def similarity_matrix(factors1, factors2):
+def normalise_cp_tensor(cp_tensor):
     '''
-    Calculates the cosine similarity matrix between components of two runs.
-
-    Parameters:
-    factors1 : list of np.ndarray
+    Docstring for normalise_cp_tensor
+    
+    :param cp_tensor: Description
+    '''
+    
+    # Get weights/ factors 
+    weights, factors = cp_tensor
+    
+    # Take copies
+    weights = weights.copy()
+    new_factors = [f.copy() for f in factors]
+    
+    # Get rank of current decomposition
+    rank = weights.shape[0]
+    
+    for r in range(rank):
+        for mode in len(new_factors):
+            
+            # Get norm of r-th component
+            norm = np.linalg.nrom(new_factors[mode][:,r])
+            
+            weights[r] *= norm
+            
+            # Normalise factor vectors for the r-th component
+            if norm > 0:
+                new_factors[mode][:,r] /= norm
+                            
+                
+    return weights, new_factors
+    
+    
+def similarity_sore(cp_tensor_A, cp_tensor_B):
+    '''
+    Calculate similarity score
+       Parameters:
+    factorsA : list of np.ndarray
         List of factor matrices from the first run.
-    factors2 : list of np.ndarray
+    factorsA : list of np.ndarray
         List of factor matrices from the second run.
-
-    Returns:
-    sim_matrix : np.ndarray
-        Cosine similarity matrix.
-
     '''
-    # Grab the width of the first factor matrix (the number of ranks)
-    rank = factors1[0].shape[1]
-    num_modes = len(factors1)
+    
+    lambdaA, factorsA = cp_tensor_A
+    lambdaB, factorsB = cp_tensor_B
+    
+    rank = len(lambdaA)
+    
+    sim_matrix = np.zeros(rank,rank)
+    
+    for i in range(rank):
+        for j in range(rank):
+            
+            weights_score = 1 - ( np.abs(lambdaA[i] - lambdaB[j] ) / max(lambdaA[i], lambdaB[j], 1e-16))
+     
+            factor_score = 1.0
+            for mode in range(len(factorsA)):
+                
+                dot_prod = np.dot(factorsA[mode][:,i], factorsB[mode][:,j])
+                
+                factor_score *= dot_prod
 
-    # Initialize similarity with ones
-    sim_matrix = np.ones((rank, rank))
-
-    for mode in range(num_modes):
-        mat1 = factors1[mode]
-        mat2 = factors2[mode]
-
-        # Normalize columns to unit length for Cosine Similarity
-        mat1_norm = mat1 / (np.linalg.norm(mat1, axis=0) + 1e-16)
-        mat2_norm = mat2 / (np.linalg.norm(mat2, axis=0) + 1e-16)
-
-        # Calculate cross-correlation for this mode
-        mode_sim = np.dot(mat1_norm.T, mat2_norm)
-
-        # Accumulate (Hadamard product)
-        sim_matrix *= mode_sim
-
-    return sim_matrix
-
-
-def optimal_score(similiarity_mat):
-    '''
-    Computes the optimal matching score using the Hungarian algorithm.
-
-    Parameters:
-    similiarity_mat : np.ndarray
-        Cosine similarity matrix.
-
-    Returns:
-    opt_score : float
-        Optimal matching score.
-
-    '''
+            sim_matrix[i,j] = weights_score * factor_score
+            
     # Hungarian Algo
-    row_ind, col_ind = linear_sum_assignment(similiarity_mat, maximize=True)
+    row_ind, col_ind = linear_sum_assignment(sim_matrix, maximize=True)
+    
+    score = sim_matrix[row_ind, col_ind].mean()
 
-    # Get maximised similarity scores and find average
-    matched_scores = similiarity_mat[row_ind, col_ind]
-    opt_score = np.abs(matched_scores).mean()
-
-    return opt_score
+    return score
 
 
-def rank_stability(tensor_data, rank, mask=None, n_repeats=10,subsample_fraction=0.8, verbose=0):
+
+
+def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     '''
     Evaluates the stability of CP decomposition at a given rank.
     
@@ -106,72 +116,79 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10,subsample_fraction
         Mean stability score.
     std_stability : float
         Standard deviation of the stability score.
-
     '''
     
     if verbose:
-        print(f"--- Testing Rank {rank} with {n_repeats} repeats ---")
+        print(f"--- Testing Rank {rank} with {n_repeats} repeats (Optimization Stability) ---")
 
-    # Identify the device of the input data
     device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
-
-    # Ensure mask is on the same device if provided
     if mask is not None and hasattr(mask, 'to'):
         mask = mask.to(device)
 
+    models = []
+    errors = []
 
-    # Empty list for factors
-    run_factors = []
-
-
-    ntrials = tensor_data.shape[0]
-    nsubsample = int(ntrials * subsample_fraction)
-
-    # Loop over n_repeats
+    
     for i in range(n_repeats):
-        
-        
-        indices = torch.randperm(ntrials)[:nsubsample].to(device)
-        subsampled_data = tensor_data[indices]
-        sub_mask = mask[indices] if mask is not None else None
-        
-        cp_tensor = non_negative_parafac(
-            subsampled_data,
-            rank=rank,
-            init="random",
-            mask=sub_mask,
-            n_iter_max=5000,
-            tol=1e-7 ,
-            random_state=i  # varies per run
-        )
 
-        # Store results
-        _, factors = cp_tensor
-        
-        feature_factors = [f.detach().cpu().numpy() for f in factors[1:]]
-        run_factors.append(feature_factors)
+        try:
+            cp_tensor = non_negative_parafac(
+                tensor_data,
+                rank=rank,
+                init="random",
+                mask=mask,
+                n_iter_max=5000,
+                tol=1e-7,
+                random_state=i # Ensure different random init
+            )
+            
+            # Move to CPU/numpy for analysis
+            weights, factors = cp_tensor
+            numpy_factors = [f.detach().cpu().numpy() if torch.is_tensor(f) else f for f in factors]
+            numpy_weights = weights.detach().cpu().numpy() if torch.is_tensor(weights) else weights
+            
+            # Store model
+            models.append((numpy_weights, numpy_factors))
+            
+            # Compute Reconstruction Error to find the best model
+            rec_tensor = tl.cp_to_tensor((weights, factors))
+            
+            if mask is not None:
+                diff = (tensor_data - rec_tensor) * mask
+            else:
+                diff = tensor_data - rec_tensor
+                
+            error = torch.norm(diff).item()
+            errors.append(error)
 
-    # Empty list for scores
-    pairwise_scores = []
+        except Exception as e:
+            print(f"Run {i} failed: {e}")
 
-    # Compute pairwise similarities
-    for run_A, run_B in combinations(run_factors, 2):
+    if not models:
+        return 0.0, 0.0
 
-        sim_mat = similarity_matrix(run_A, run_B)
+    # Identify Best Model (global minimum candidate)
+    best_idx = np.argmin(errors)
+    best_model = models[best_idx]
+    
+    # Compare all models to the Best Model
+    similarities = []
+    for i, model in enumerate(models):
+        if i == best_idx:
+            # The similarity of the best model to itself is 1.0
+            similarities.append(1.0)
+        else:
+            score = similarity_sore(best_model, model)
+            similarities.append(score)
 
-        score = optimal_score(sim_mat)
-
-        pairwise_scores.append(score)
-
-    # Compute mean and std
-    mean_stability = np.mean(pairwise_scores)
-    std_stability = np.std(pairwise_scores)
+    mean_stability = np.mean(similarities)
+    std_stability = np.std(similarities)
 
     if verbose:
-        print(
-            f"Rank {rank}: Mean Stability = {mean_stability:.4f} (Std: {std_stability:.4f})")
+        print(f"Rank {rank}: Best Error={errors[best_idx]:.4f} | Mean Similarity={mean_stability:.4f}")
 
     return mean_stability, std_stability
+
 
 def stability_plot(ranks,stabilities,stds):
     '''
