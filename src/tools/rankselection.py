@@ -8,7 +8,7 @@ import tensorly as tl
 import torch
 
 tl.set_backend('pytorch')
-
+torch.set_default_dtype(torch.float32)
 
 def rel_error(full, cp_tensor):
     '''
@@ -42,30 +42,36 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     lambdaA, factorsA = cp_normalize(cp_tensor_A)
     lambdaB, factorsB = cp_normalize(cp_tensor_B)
 
-    # --- FIX: Convert tensors to numpy arrays on CPU ---
     if torch.is_tensor(lambdaA):
-        lambdaA = lambdaA.detach().cpu().numpy()
-    if torch.is_tensor(lambdaB):
-        lambdaB = lambdaB.detach().cpu().numpy()
+        lambdaA = lambdaA.detach().cpu().numpy().astype(np.float32)
+    else:
+        lambdaA = np.array(lambdaA, dtype=np.float32)
 
-    factorsA = [f.detach().cpu().numpy() if torch.is_tensor(f) else f for f in factorsA]
-    factorsB = [f.detach().cpu().numpy() if torch.is_tensor(f) else f for f in factorsB]
+    if torch.is_tensor(lambdaB):
+        lambdaB = lambdaB.detach().cpu().numpy().astype(np.float32)
+    else:
+        lambdaB = np.array(lambdaB, dtype=np.float32)
+
+    factorsA = [f.detach().cpu().numpy().astype(np.float32) if torch.is_tensor(f) 
+                else np.array(f, dtype=np.float32) for f in factorsA]
+    factorsB = [f.detach().cpu().numpy().astype(np.float32) if torch.is_tensor(f) 
+                else np.array(f, dtype=np.float32) for f in factorsB]
     
     
     rank = factorsA[0].shape[1]
 
-    sim_matrix = np.zeros((rank, rank))
+    sim_matrix = np.zeros((rank, rank),dtype=np.float32)
 
     for i in range(rank):
         for j in range(rank):
 
             max_lam = max(lambdaA[i], lambdaB[j])
             if max_lam == 0:
-                weight_score = 1.0 # Both are zero
+                weight_score = np.float32(1.0) # Both are zero
             else:
-                weight_score = 1 - (np.abs(lambdaA[i] - lambdaB[j]) / max_lam)
+                weight_score = np.float32(1.0) - (np.abs(lambdaA[i] - lambdaB[j]) / max_lam)
 
-            factor_score = 1.0
+            factor_score = np.float32(1.0)
             for mode in range(len(factorsA)):
 
                 dot_prod = np.dot(factorsA[mode][:, i], factorsB[mode][:, j])
@@ -77,7 +83,7 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     # Hungarian Algo
     row_ind, col_ind = linear_sum_assignment(sim_matrix, maximize=True)
 
-    score = sim_matrix[row_ind, col_ind].mean()
+    score = sim_matrix[row_ind, col_ind].mean(np.float32(1.0))
 
     return score
 
@@ -100,6 +106,9 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     std_stability : float
         Standard deviation of the stability score.
     '''
+
+    if tensor_data.dtype != torch.float32:
+        tensor_data = tensor_data.to(torch.float32)
 
     if verbose:
         print(
@@ -141,7 +150,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
                 diff = tensor_data - rec_tensor
 
             error = torch.norm(diff)
-            error = error.detach().cpu().numpy()
+            error = error.detach().cpu().numpy().astype(np.float32)
             errors.append(error)
 
         except Exception as e:
@@ -163,8 +172,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
             score = similarity_score(best_model, model)
             similarities.append(score)
 
-    mean_stability = np.mean(similarities)
-    std_stability = np.std(similarities)
+    mean_stability = np.mean(similarities,dtype=np.float32)
+    std_stability = np.std(similarities,dtype=np.float32)
 
     if verbose:
         print(
@@ -178,6 +187,10 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
 
 
     '''
+    
+    if tensor_data.dtype != torch.float32:
+        tensor_data = tensor_data.to(torch.float32)
+    
     device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
     if mask is not None and hasattr(mask, 'to'):
         mask = mask.to(device)
@@ -204,15 +217,15 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
              relative_err = relative_err.detach().cpu().numpy()
 
 
-             variance = (1 - relative_err**2)
+             variance = (np.float32(1) - relative_err**2)
             
              variances.append(variance)
              
         except Exception as e:
             print(f"Run {i} failed: {e}") 
     
-    mean_variance = np.mean(variances)
-    std_variance = np.std(variances)
+    mean_variance = np.mean(variances,dtype=np.float32)
+    std_variance = np.std(variances,dtype=np.float32)
     
     return mean_variance, std_variance
     
