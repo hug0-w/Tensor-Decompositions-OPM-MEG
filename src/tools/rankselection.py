@@ -9,6 +9,24 @@ import torch
 tl.set_backend('pytorch')
 
 
+def rel_error(full, cp_tensor):
+    '''
+    Calculates the relative error between two tensors.
+    
+    Parameters:
+    full : torch.Tensor
+        Original tensor.
+    reconstructed : torch.
+    '''
+    reconstructed = tl.cp_to_tensor(cp_tensor)
+    
+    numerator = torch.norm(full - reconstructed)
+    denominator = torch.norm(full)
+    
+    return numerator / denominator
+
+
+
 def similarity_matrix(factors1, factors2):
     '''
     Calculates the cosine similarity matrix between components of two runs.
