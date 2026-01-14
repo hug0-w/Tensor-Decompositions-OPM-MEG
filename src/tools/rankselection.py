@@ -195,6 +195,10 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     if mask is not None and hasattr(mask, 'to'):
         mask = mask.to(device)
 
+    # We subtract the mean to ignore the static background offset
+    global_mean = torch.mean(tensor_data)
+    sst = torch.sum((tensor_data - global_mean) ** 2)
+
     fits = []
 
     for i in range(n_repeats):
@@ -210,24 +214,24 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
             )
 
 
-             relative_err = rel_error(tensor_data, cp_tensor)
+             rec_tensor = tl.cp_to_tensor(cp_tensor)
 
-
+             # SSR is the sum of squared errors
+             ssr = torch.sum((tensor_data - rec_tensor) ** 2)
 
              relative_err = relative_err.detach().cpu().numpy()
 
-
-             fit = (np.float32(1) - relative_err)
-            
-             fits.append(fit)
+             r2_score = 1 - (ssr / sst)
+             
+             fits.append(r2_score.detach().cpu().item())
              
         except Exception as e:
             print(f"Run {i} failed: {e}") 
     
-    mean_variance = np.mean(fits,dtype=np.float32)
-    std_variance = np.std(fits,dtype=np.float32)
+    best_fit = np.max(fits).astype(np.float32)
+    std_fit = np.std(fits).astype(np.float32)
     
-    return mean_variance, std_variance
+    return best_fit, std_fit
     
         
     
