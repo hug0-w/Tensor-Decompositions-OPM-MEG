@@ -182,7 +182,7 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     return mean_stability, std_stability
 
 
-def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
+def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     '''
 
 
@@ -195,7 +195,7 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     if mask is not None and hasattr(mask, 'to'):
         mask = mask.to(device)
 
-    variances = []
+    fits = []
 
     for i in range(n_repeats):
 
@@ -217,15 +217,15 @@ def rank_variance(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
              relative_err = relative_err.detach().cpu().numpy()
 
 
-             variance = (np.float32(1) - relative_err**2)
+             fit = (np.float32(1) - relative_err)
             
-             variances.append(variance)
+             fits.append(fit)
              
         except Exception as e:
             print(f"Run {i} failed: {e}") 
     
-    mean_variance = np.mean(variances,dtype=np.float32)
-    std_variance = np.std(variances,dtype=np.float32)
+    mean_variance = np.mean(fits,dtype=np.float32)
+    std_variance = np.std(fits,dtype=np.float32)
     
     return mean_variance, std_variance
     
