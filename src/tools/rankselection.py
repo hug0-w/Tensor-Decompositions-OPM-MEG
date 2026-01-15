@@ -269,63 +269,41 @@ def stability_plot(ranks, stabilities, stds):
 
 # based on https://gist.github.com/willshiao/2c0d7cc1133d8fa31587e541fef480fb, adapted for 4-th order array
 
+
+import torch
+from tensorly.tenalg import mode_dot
+from tensorly.decomposition import non_negative_parafac_hals
+
 def kron_mat_ten(matrices, X):
-    
     Y = X
-     
     for mode, M in enumerate(matrices):
-        Y = mode_dot(Y, M, mode)
+        Y = mode_dot(Y, M, mode)   # expects M shape: (new_dim, old_dim)
     return Y
 
 def corcondia(tensor_data, rank=1, init='random'):
-    
-      cp_tensor = non_negative_parafac_hals(
-                tensor_data,
-                rank=rank,
-                init=init,
-                n_iter_max=5000,
-                tol=1e-8,
-            )
-      
-      _, factors = cp_tensor
-      
-      A,B,C,D = factors
-      
-      #SVD 
-      
-      UA , SA , VA = torch.linalg.svd(A)
-      UB , SB , VB = torch.linalg.svd(B)
-      UC , SC , VC = torch.linalg.svd(C)
-      UD , SD , VD = torch.linalg.svd(D)
-      
-      SaI = torch.linalg.pinv(torch.diag(SA))
-      SbI = torch.linalg.pinv(torch.diag(SB))
-      ScI = torch.linalg.pinv(torch.diag(SC))
-      SdI = torch.linalg.pinv(torch.diag(SD))
+    weights, factors = non_negative_parafac_hals(
+        tensor_data, rank=rank, init=init, n_iter_max=5000, tol=1e-8
+    )
 
-      y = kron_mat_ten([UA.T, UB.T, UC.T , UD.T], tensor_data)
-      z = kron_mat_ten([SaI, SbI, ScI , SdI], y)
-      G = kron_mat_ten([VA.T, VB.T, VC.T,VD.T], z)
-      
-      C = torch.full((rank,rank,rank,rank),0)
-      for i in range(rank):
-          for j in range(rank):
-              for k in range(rank):
-                  for l in range(rank):
-                      if i == j == k == l:
-                          C[i,j,k,l] = 1
-                          
-      c = 0
-      for i in range(rank):
-          for j in range(rank):
-              for k in range(rank):
-                  for l in range(rank):
-                      c += ((G[i][j][k][l] - C[i][j][k][l]) ** 2.0)
-    
-      cc = 100 * (1 - (c / rank))
-    
-      return cc.detach().cpu().item()
-    
+    A, B, C, D = factors
+
+    # (rank, I_mode) for each pinv -> mode_dot reduces each mode to 'rank'
+    Ap = torch.linalg.pinv(A)
+    Bp = torch.linalg.pinv(B)
+    Cp = torch.linalg.pinv(C)
+    Dp = torch.linalg.pinv(D)
+
+    G = kron_mat_ten([Ap, Bp, Cp, Dp], tensor_data)  # shape (rank,rank,rank,rank)
+
+    # ideal superdiagonal core
+    Cideal = torch.zeros((rank, rank, rank, rank), device=G.device, dtype=G.dtype)
+    idx = torch.arange(rank, device=G.device)
+    Cideal[idx, idx, idx, idx] = 1
+
+    c = torch.sum((G - Cideal) ** 2)
+    cc = 100 * (1 - (c / rank))
+    return cc.detach().cpu().item()
+
     
     
   
