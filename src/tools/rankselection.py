@@ -305,7 +305,7 @@ def corcondia(tensor_data, rank=1, init='random'):
 
       y = kron_mat_ten([UA.T, UB.T, UC.T , UD.T], tensor_data)
       z = kron_mat_ten([SaI, SbI, ScI , SdI], y)
-      G = kron_mat_ten([VA.T, VB.T, VC.T , VD.T], z)
+      G = kron_mat_ten([VA.T, VB.T, VC.T,VD.T], z)
       
       C = torch.full((rank,rank,rank,rank),0)
       for i in range(rank):
@@ -320,7 +320,7 @@ def corcondia(tensor_data, rank=1, init='random'):
           for j in range(rank):
               for k in range(rank):
                   for l in range(rank):
-                      c += ((G[i][j][k][k] - C[i][j][k][l]) ** 2.0)
+                      c += ((G[i][j][k][l] - C[i][j][k][l]) ** 2.0)
     
       cc = 100 * (1 - (c / rank))
     
