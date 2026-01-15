@@ -300,22 +300,30 @@ def corcondia(tensor_data, rank=1, init='random'):
           
           U,s,Vt = torch.linalg.svd(mode, full_matrices=False)
 
-          U_list.append(U)
+          U_list.append(U.T)
           S_inv_list.append(torch.diag(1/s))
           Vt_list.append(Vt.T)
 
-      part1 = kron_mat_ten(U_list, reconstructed_tensor)
+      part1 = kron_mat_ten(U_list, tensor_data)
       part2 = kron_mat_ten(S_inv_list, part1)
       G = kron_mat_ten(Vt_list, part2)
 
-      T = torch.zeros((rank,) * tl.ndim(tensor_data))
-      idx = (torch.arange(rank),) * tl.ndim(tensor_data)
-      T[idx] = 1.0
+      T = torch.zeros_like(G)
+      min_dim = min(G.shape)
+      idx = tuple(torch.arange(min_dim) for _ in range(tl.ndim(tensor_data)))
+      T[idx] = G[idx]
 
-      result = 100.0 * (1.0 - torch.sum((G - T) ** 2) / float(rank))
+      # Standard CORCONDIA formula: 100 * (1 - ||G - T||^2 / ||G||^2)
+      numerator = torch.sum((G - T) ** 2)
+      denominator = torch.sum(G ** 2)
     
+      # Avoid division by zero
+      if denominator == 0:
+          return 0.0
+        
+      consistency = 100.0 * (1.0 - (numerator / denominator))
 
-      return result.detach().cpu().numpy()
+      return consistency.detach().cpu().item()
     
     
     
