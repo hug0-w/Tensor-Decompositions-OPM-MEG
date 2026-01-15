@@ -282,54 +282,49 @@ def corcondia(tensor_data, rank=1, init='random'):
       cp_tensor = non_negative_parafac_hals(
                 tensor_data,
                 rank=rank,
-                init="random",
+                init=init,
                 n_iter_max=5000,
                 tol=1e-8,
             )
       
       _, factors = cp_tensor
       
-      reconstructed_tensor = tl.cp_to_tensor(cp_tensor)
+      A,B,C,D = factors
       
+      #SVD 
       
-      # SVD each factor
+      UA , SA , VA = torch.linalg.svd(A)
+      UB , SB , VB = torch.linalg.svd(B)
+      UC , SC , VC = torch.linalg.svd(C)
+      UD , SD , VD = torch.linalg.svd(D)
       
-      U_list, S_inv_list, Vt_list = [], [], []
+      SaI = torch.linalg.pinv(torch.diag(SA))
+      SbI = torch.linalg.pinv(torch.diag(SB))
+      ScI = torch.linalg.pinv(torch.diag(SC))
+      SdI = torch.linalg.pinv(torch.diag(SD))
+
+      y = kron_mat_ten([UA.T, UB.T, UC.T , UD.T], tensor_data)
+      z = kron_mat_ten([SaI, SbI, ScI , SdI], y)
+      G = kron_mat_ten([VA.T, VB.T, VC.T , VD.T], z)
       
-      for mode in factors:
-          
-          U,s,Vt = torch.linalg.svd(mode, full_matrices=False)
-
-          U_list.append(U.T)
-          S_inv_list.append(torch.diag(1/s))
-          Vt_list.append(Vt.T)
-
-      part1 = kron_mat_ten(U_list, tensor_data)
-      part2 = kron_mat_ten(S_inv_list, part1)
-      G = kron_mat_ten(Vt_list, part2)
-
-      T = torch.zeros_like(G)
-      min_dim = min(G.shape)
-      idx = tuple(torch.arange(min_dim) for _ in range(tl.ndim(tensor_data)))
-      T[idx] = G[idx]
-
-      # Standard CORCONDIA formula: 100 * (1 - ||G - T||^2 / ||G||^2)
-      numerator = torch.sum((G - T) ** 2)
-      denominator = torch.sum(G ** 2)
+      C = torch.full((rank,rank,rank,rank),0)
+      for i in range(rank):
+          for j in range(rank):
+              for k in range(rank):
+                  for l in range(rank):
+                      if i == j == k == l:
+                          C[i,j,k,l] = 1
+                          
+      c = 0
+      for i in range(rank):
+          for j in range(rank):
+              for k in range(rank):
+                  for l in range(rank):
+                      c += ((G[i][j][k][k] - C[i][j][k][l]) ** 2.0)
     
-      # Avoid division by zero
-      if denominator == 0:
-          return 0.0
-        
-      consistency = 100.0 * (1.0 - (numerator / denominator))
-
-      return consistency.detach().cpu().item()
+      cc = 100 * (1 - (c / rank))
     
-    
-    
-    
-    
-    
+      return cc.detach().cpu().item()
     
     
     
