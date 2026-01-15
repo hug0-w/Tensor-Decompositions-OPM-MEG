@@ -283,8 +283,8 @@ def corcondia(tensor_data, rank=1, init='random'):
                 tensor_data,
                 rank=rank,
                 init="random",
-                n_iter_max=1000,
-                tol=1e-5,
+                n_iter_max=5000,
+                tol=1e-8,
             )
       
       _, factors = cp_tensor
