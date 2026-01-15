@@ -5,6 +5,7 @@ from scipy.optimize import linear_sum_assignment
 from itertools import combinations
 from tensorly.cp_tensor import cp_normalize
 import tensorly as tl
+from tensorly.tenalg import mode_dot
 import torch
 
 tl.set_backend('pytorch')
@@ -235,9 +236,7 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     
         
     
-            
-
-
+        
 def stability_plot(ranks, stabilities, stds):
     '''
     Plots the stability scores against ranks.
@@ -267,3 +266,63 @@ def stability_plot(ranks, stabilities, stds):
     plt.minorticks_on()
     plt.xticks(ranks)
     plt.legend(framealpha=0, loc='upper right')
+
+# based on https://gist.github.com/willshiao/2c0d7cc1133d8fa31587e541fef480fb, adapted for 4-th order array
+
+def kron_mat_ten(matrices, X):
+    
+    Y = X
+     
+    for mode, M in enumerate(matrices):
+        Y = mode_dot(Y, M, mode)
+    return Y
+
+def corcondia(tensor_data, rank=1, init='random'):
+    
+      cp_tensor = non_negative_parafac_hals(
+                tensor_data,
+                rank=rank,
+                init="random",
+                n_iter_max=1000,
+                tol=1e-5,
+            )
+      
+      _, factors = cp_tensor
+      
+      reconstructed_tensor = tl.cp_to_tensor(cp_tensor)
+      
+      
+      # SVD each factor
+      
+      U_list, S_inv_list, Vt_list = [], [], []
+      
+      for mode in factors:
+          
+          U,s,Vt = torch.linalg.svd(mode, full_matrices=False)
+
+          U_list.append(U)
+          S_inv_list.append(torch.diag(1/s))
+          Vt_list.append(Vt.T)
+
+      part1 = kron_mat_ten(U_list, reconstructed_tensor)
+      part2 = kron_mat_ten(S_inv_list, part1)
+      G = kron_mat_ten(Vt_list, part2)
+
+      T = torch.zeros((rank,) * tl.ndim(tensor_data))
+      idx = (torch.arange(rank),) * tl.ndim(tensor_data)
+      T[idx] = 1.0
+
+      result = 100.0 * (1.0 - torch.sum((G - T) ** 2) / float(rank))
+    
+
+      return result.detach().cpu().numpy()
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  
