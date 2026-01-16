@@ -293,10 +293,10 @@ def corcondia(tensor_data, rank=1, init='random'):
       
       #SVD 
       
-      UA , SA , VA = torch.linalg.svd(A, full_matrices=False)
-      UB , SB , VB = torch.linalg.svd(B, full_matrices=False)
-      UC , SC , VC = torch.linalg.svd(C, full_matrices=False)
-      UD , SD , VD = torch.linalg.svd(D, full_matrices=False)
+      UA , SA , VA = torch.linalg.svd(A)
+      UB , SB , VB = torch.linalg.svd(B)
+      UC , SC , VC = torch.linalg.svd(C)
+      UD , SD , VD = torch.linalg.svd(D)
       
       SaI = torch.linalg.pinv(torch.diag(SA))
       SbI = torch.linalg.pinv(torch.diag(SB))
@@ -305,7 +305,7 @@ def corcondia(tensor_data, rank=1, init='random'):
 
       y = kron_mat_ten([UA.T, UB.T, UC.T , UD.T], tensor_data)
       z = kron_mat_ten([SaI, SbI, ScI , SdI], y)
-      G = kron_mat_ten([VA.T, VB.T, VC.T,VD.T], z)
+      G = kron_mat_ten([VA.T, VB.T, VC.T , VD.T], z)
       
       C = torch.full((rank,rank,rank,rank),0)
       for i in range(rank):
@@ -316,15 +316,15 @@ def corcondia(tensor_data, rank=1, init='random'):
                           C[i,j,k,l] = 1
                           
       c = 0
-      for i in range(rank):
-          for j in range(rank):
-              for k in range(rank):
-                  for l in range(rank):
-                      c += ((G[i][j][k][l] - C[i][j][k][l]) ** 2.0)
+      for i in range(k):
+          for j in range(k):
+              for k in range(k):
+                  for l in range(k):
+                      c += ((G[i][j][k][k] - C[i][j][k][l]) ** 2.0)
     
-      cc = 100 * (1 - (c / rank))
+      cc = 100 * (1 - (c / k))
     
-      return cc.detach().cpu().item()
+    
     
     
     
