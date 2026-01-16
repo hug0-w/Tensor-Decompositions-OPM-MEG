@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
-
+import mne
+import numpy as np
+import torch
 
 def plot_factors_subplots(A, B, C, D):
     """
@@ -53,7 +55,7 @@ def plot_factors_subplots(A, B, C, D):
     plt.tight_layout()
     plt.show()
     
-def plot_factors(A, B, C, D):    
+def plot_factors(A, B, C, D, pos_2d):
     """
     Plots the factor matrices A, B, C, and D without subplots,
     each component in a separate figure.
@@ -79,32 +81,35 @@ def plot_factors(A, B, C, D):
         # Mode 0 (trials)
         axes[0].bar(range(A.shape[0]), A[:, r], color='tab:blue')
         axes[0].set_title('Trials')
-        axes[0].set_ylabel('Amplitude')
+        axes[0].set_ylabel('Loading (a.u.)')
         axes[0].set_xlabel('Trial Number')
 
         # Mode 1 (channels)
-        axes[1].plot(B[:, r], color='tab:orange', ls='', marker='o')
-        axes[1].set_title('Channels')
-        axes[1].set_ylabel('Amplitude')
-        axes[1].set_xlabel('Channel')
+        im, cn = mne.viz.plot_topomap(B[:, r], pos_2d,
+                     axes=axes[1],
+                     show=False,
+                     contours=5,
+                     sphere=0.12,cmap='RdBu_r',extrapolate='auto')
+        axes[1].set_title('Topoplot')
+        cb = fig.colorbar(im, ax=axes[1], fraction=0.046, pad=0.04)
 
         # Mode 2 (freq)
-        axes[2].plot(C[:, r], color='tab:green', ls='', marker='o')
+        #axes[2].plot(C[:, r], color='tab:green', ls='', marker='')
+        freq = np.linspace(0,70,len(C[:, r]))
+        axes[2].plot(freq,C[:, r], color='tab:green',alpha=0.5)
         axes[2].set_title('Frequency')
-        axes[2].set_ylabel('Amplitude')
-        freq_bands = ['1-4 Hz', '4-8 Hz', '8-12 Hz', '13 - 20 Hz', '21-30 Hz' , '31-45 Hz', '46-70 Hz']
-        axes[2].set_xticks(range(len(freq_bands)))
-        axes[2].set_xticklabels(freq_bands, rotation=45, ha='right')
-        axes[2].set_xlabel('Frequency Band (Hz)')
+        axes[2].set_ylabel('Loading (a.u.)')
+        axes[2].set_xlabel('Frequency (Hz)')
 
         # Mode 3 (time)
-        axes[3].plot(D[:, r])
+        time = np.linspace(0,1500,len(D[:, r]))
+        axes[3].plot(time,D[:, r])
         axes[3].set_title('Time')
-        axes[3].set_ylabel('Amplitude')
+        axes[3].set_ylabel('Loading (a.u.)')
         axes[3].set_xlabel('Time (s)')
 
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) 
-    
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
     
     
 def plot_single_mode(factor_matrix, mode_name):
