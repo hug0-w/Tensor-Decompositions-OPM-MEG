@@ -94,7 +94,7 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
 
 
 def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None,
-                n_iter_max=2000, tol=1e-6):
+                n_iter_max=2000, tol=1e-8):
     """
     Run CP decomposition with optional non-negativity constraints on specific modes.
     
@@ -120,7 +120,7 @@ def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None,
     original_device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
     
     if non_negative_modes is not None and len(non_negative_modes) > 0:
-        # constrained_parafac has issues with CUDA tensors - move to CPU
+        
         if hasattr(tensor_data, 'cpu'):
             tensor_cpu = tensor_data.cpu()
         else:
@@ -136,9 +136,9 @@ def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None,
             rank=rank,
             init="random",
             n_iter_max=n_iter_max,
-            n_iter_max_inner=10,
+            n_iter_max_inner=50,
             tol_outer=tol,
-            tol_inner=1e-4,
+            tol_inner=1e-6,
             random_state=random_state,
             non_negative=non_negative_dict,  # Dictionary {mode: bool}
             verbose=0
@@ -287,7 +287,7 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5,
 
     Returns:
     best_fit : float
-        Best R² score across repeats.
+        Best R score across repeats.
     std_fit : float
         Standard deviation of fits.
     '''
