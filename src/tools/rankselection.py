@@ -93,7 +93,8 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     return score
 
 
-def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None):
+def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None,
+                n_iter_max=2000, tol=1e-6):
     """
     Run CP decomposition with optional non-negativity constraints on specific modes.
     
@@ -106,6 +107,10 @@ def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None):
         List of mode indices that should be non-negative (e.g., [1, 2] for modes 1 and 2).
     random_state : int or None
         Random seed.
+    n_iter_max : int
+        Maximum iterations.
+    tol : float
+        Convergence tolerance.
     
     Returns:
     cp_tensor : tuple
@@ -113,26 +118,30 @@ def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None):
     """
     if non_negative_modes is not None and len(non_negative_modes) > 0:
         # Use constrained_parafac for non-negativity on specific modes
+        # API expects dictionary: {mode_index: True/False} or bool for all modes
         n_modes = len(tensor_data.shape)
-        non_negative = [mode in non_negative_modes for mode in range(n_modes)]
+        non_negative_dict = {mode: (mode in non_negative_modes) for mode in range(n_modes)}
         
         cp_tensor = constrained_parafac(
             tensor_data,
             rank=rank,
             init="random",
-            n_iter_max=2000,
-            tol=1e-6,
+            n_iter_max=n_iter_max,
+            n_iter_max_inner=10,
+            tol_outer=tol,
+            tol_inner=1e-4,
             random_state=random_state,
-            non_negative=non_negative,  # List of bools per mode
+            non_negative=non_negative_dict,  # Dictionary {mode: bool}
+            verbose=0
         )
     else:
-        # Standard CP decomposition
+        # Standard CP decomposition (faster when no constraints needed)
         cp_tensor = parafac(
             tensor_data,
             rank=rank,
             init="random",
-            n_iter_max=2000,
-            tol=1e-6,
+            n_iter_max=n_iter_max,
+            tol=tol,
             random_state=random_state,
             normalize_factors=True,
             linesearch=True
@@ -387,7 +396,9 @@ def corcondia(tensor_data, rank=1, init='random', non_negative_modes=None):
         tensor_data,
         rank=rank,
         non_negative_modes=non_negative_modes,
-        random_state=42
+        random_state=42,
+        n_iter_max=5000,
+        tol=1e-8
     )
     
     _, factors = cp_tensor
@@ -527,7 +538,7 @@ def suggest_rank(results, stability_threshold=0.85, fit_threshold=0.8):
             return best[0]
         return None
     
-    # Among valid ranks, prefer highest rank 
+    # Among valid ranks, prefer highest rank (more components) if R² still increasing
     # Or use elbow method: find where fit improvement slows
     best_rank = max(valid_ranks, key=lambda x: x[2])  # highest R²
     print(f"Suggested rank: {best_rank[0]} (stability={best_rank[1]:.3f}, R²={best_rank[2]:.3f})")
