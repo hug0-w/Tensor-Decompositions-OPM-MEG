@@ -1,8 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from tensorly.decomposition import parafac  
+from tensorly.decomposition import parafac, constrained_parafac
 from scipy.optimize import linear_sum_assignment
-from itertools import combinations
 from tensorly.cp_tensor import cp_normalize
 import tensorly as tl
 from tensorly.tenalg import mode_dot
@@ -23,18 +22,15 @@ def rel_error(full, cp_tensor):
         CP tensor (weights, factors).
     '''
     reconstructed = tl.cp_to_tensor(cp_tensor)
-
     numerator = torch.norm(full - reconstructed)
     denominator = torch.norm(full)
-
     return numerator / denominator
 
 
 def similarity_score(cp_tensor_A, cp_tensor_B):
     '''
     Calculate similarity score between two CP decompositions.
-    Uses absolute value of factor correlations to handle sign ambiguity
-    in standard CP decomposition.
+    Uses absolute value of factor correlations to handle sign ambiguity.
     
     Parameters:
     cp_tensor_A : tuple
@@ -42,7 +38,6 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     cp_tensor_B : tuple
         Second CP tensor (weights, factors).
     '''
-
     lambdaA, factorsA = cp_normalize(cp_tensor_A)
     lambdaB, factorsB = cp_normalize(cp_tensor_B)
 
@@ -61,13 +56,12 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     factorsB = [f.detach().cpu().numpy().astype(np.float32) if torch.is_tensor(f) 
                 else np.array(f, dtype=np.float32) for f in factorsB]
     
-    rank = factorsA[0].shape[1]      
-
+    rank = factorsA[0].shape[1]
     sim_matrix = np.zeros((rank, rank), dtype=np.float32)
 
     for i in range(rank):
         for j in range(rank):
-            # Weight similarity (use absolute values since signs can flip)
+            # Weight similarity
             max_lam = max(np.abs(lambdaA[i]), np.abs(lambdaB[j]))
             if max_lam == 0:
                 weight_score = np.float32(1.0)
@@ -75,10 +69,8 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
                 weight_score = np.float32(1.0) - (np.abs(np.abs(lambdaA[i]) - np.abs(lambdaB[j])) / max_lam)
 
             # Factor similarity using absolute cosine similarity
-            # This handles sign ambiguity in standard CP
             factor_score = np.float32(1.0)
             for mode in range(len(factorsA)):
-                # Normalize vectors
                 vec_a = factorsA[mode][:, i]
                 vec_b = factorsB[mode][:, j]
                 
@@ -86,7 +78,6 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
                 norm_b = np.linalg.norm(vec_b)
                 
                 if norm_a > 0 and norm_b > 0:
-                    # Absolute cosine similarity (handles sign flips)
                     cosine_sim = np.abs(np.dot(vec_a, vec_b) / (norm_a * norm_b))
                 else:
                     cosine_sim = np.float32(0.0)
@@ -97,13 +88,61 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
 
     # Hungarian Algorithm for optimal matching
     row_ind, col_ind = linear_sum_assignment(sim_matrix, maximize=True)
-
     score = sim_matrix[row_ind, col_ind].mean(dtype=np.float32)
 
     return score
 
 
-def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
+def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None):
+    """
+    Run CP decomposition with optional non-negativity constraints on specific modes.
+    
+    Parameters:
+    tensor_data : torch.Tensor
+        Input tensor.
+    rank : int
+        Rank of decomposition.
+    non_negative_modes : list or None
+        List of mode indices that should be non-negative (e.g., [1, 2] for modes 1 and 2).
+    random_state : int or None
+        Random seed.
+    
+    Returns:
+    cp_tensor : tuple
+        (weights, factors)
+    """
+    if non_negative_modes is not None and len(non_negative_modes) > 0:
+        # Use constrained_parafac for non-negativity on specific modes
+        n_modes = len(tensor_data.shape)
+        non_negative = [mode in non_negative_modes for mode in range(n_modes)]
+        
+        cp_tensor = constrained_parafac(
+            tensor_data,
+            rank=rank,
+            init="random",
+            n_iter_max=2000,
+            tol=1e-6,
+            random_state=random_state,
+            non_negative=non_negative,  # List of bools per mode
+        )
+    else:
+        # Standard CP decomposition
+        cp_tensor = parafac(
+            tensor_data,
+            rank=rank,
+            init="random",
+            n_iter_max=2000,
+            tol=1e-6,
+            random_state=random_state,
+            normalize_factors=True,
+            linesearch=True
+        )
+    
+    return cp_tensor
+
+
+def rank_stability(tensor_data, rank, mask=None, n_repeats=10, 
+                   non_negative_modes=None, verbose=0):
     '''
     Evaluates the stability of CP decomposition at a given rank.
 
@@ -116,6 +155,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
         Mask for missing data.
     n_repeats : int
         Number of repeats per rank.
+    non_negative_modes : list, optional
+        Modes that should be non-negative (e.g., [1, 2] for frequency and time).
     verbose : int
         Verbosity level.
 
@@ -125,12 +166,12 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     std_stability : float
         Standard deviation of the stability score.
     '''
-
     if tensor_data.dtype != torch.float32:
         tensor_data = tensor_data.to(torch.float32)
 
     if verbose:
-        print(f"--- Testing Rank {rank} with {n_repeats} repeats (Optimization Stability) ---")
+        nn_str = f" (non-negative modes: {non_negative_modes})" if non_negative_modes else ""
+        print(f"--- Testing Rank {rank} with {n_repeats} repeats{nn_str} ---")
 
     device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
     if mask is not None and hasattr(mask, 'to'):
@@ -141,20 +182,14 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
 
     for i in range(n_repeats):
         try:
-            # Standard CP decomposition (allows negative values)
-            cp_tensor = parafac(
-                tensor_data,
-                rank=rank,
-                init="random",
-                n_iter_max=2000,
-                tol=1e-6,
-                random_state=i,
-                normalize_factors=True,
-                linesearch=True  # Improves convergence
+            cp_tensor = run_parafac(
+                tensor_data, 
+                rank=rank, 
+                non_negative_modes=non_negative_modes,
+                random_state=i
             )
 
             weights, factors = cp_tensor
-            
             norm_weights, norm_factors = cp_normalize((weights, factors))
             cpu_weights = norm_weights.detach().cpu()
             cpu_factors = [f.detach().cpu() for f in norm_factors]
@@ -173,7 +208,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
             errors.append(error)
 
         except Exception as e:
-            print(f"Run {i} failed: {e}")
+            if verbose:
+                print(f"Run {i} failed: {e}")
 
     if not models:
         return 0.0, 0.0
@@ -200,7 +236,8 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10, verbose=0):
     return mean_stability, std_stability
 
 
-def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
+def rank_fit(tensor_data, rank, mask=None, n_repeats=5, 
+             non_negative_modes=None, verbose=0):
     '''
     Evaluates the fit (R² score) of CP decomposition at a given rank.
 
@@ -213,6 +250,8 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
         Mask for missing data.
     n_repeats : int
         Number of repeats.
+    non_negative_modes : list, optional
+        Modes that should be non-negative.
     verbose : int
         Verbosity level.
 
@@ -222,7 +261,6 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     std_fit : float
         Standard deviation of fits.
     '''
-    
     if tensor_data.dtype != torch.float32:
         tensor_data = tensor_data.to(torch.float32)
     
@@ -230,7 +268,7 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
     if mask is not None and hasattr(mask, 'to'):
         mask = mask.to(device)
 
-    # Total sum of squares (variance to explain)
+    # Total sum of squares
     global_mean = torch.mean(tensor_data)
     sst = torch.sum((tensor_data - global_mean) ** 2)
 
@@ -238,16 +276,11 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
 
     for i in range(n_repeats):
         try:
-            # Standard CP decomposition
-            cp_tensor = parafac(
+            cp_tensor = run_parafac(
                 tensor_data,
                 rank=rank,
-                init="random",
-                n_iter_max=1000,
-                tol=1e-5,
-                random_state=i,
-                normalize_factors=True,
-                linesearch=True
+                non_negative_modes=non_negative_modes,
+                random_state=i
             )
 
             rec_tensor = tl.cp_to_tensor(cp_tensor)
@@ -259,82 +292,60 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5, verbose=0):
                 ssr = torch.sum((tensor_data - rec_tensor) ** 2)
 
             r2_score = 1 - (ssr / sst)
-            
             fits.append(r2_score.detach().cpu().item())
             
-            if verbose:
+            if verbose > 1:
                 print(f"  Run {i}: R² = {fits[-1]:.4f}")
              
         except Exception as e:
-            print(f"Run {i} failed: {e}") 
+            if verbose:
+                print(f"Run {i} failed: {e}")
     
     if not fits:
         return 0.0, 0.0
     
-    best_fit = np.max(fits).astype(np.float32)
-    std_fit = np.std(fits).astype(np.float32)
+    best_fit = float(np.max(fits))
+    std_fit = float(np.std(fits))
     
     return best_fit, std_fit
 
 
-def stability_plot(ranks, stabilities, stds):
+def stability_plot(ranks, stabilities, stds, title_suffix=""):
     '''
     Plots the stability scores against ranks.
-
-    Parameters:
-    ranks : list
-        List of ranks.
-    stabilities : list
-        List of stability scores.
-    stds : list
-        List of standard deviations.
     '''
-
     plt.figure(figsize=(10, 6))
-
-    plt.errorbar(ranks, stabilities, stds, marker='o',
-                 capsize=4, label='CP Stability Score')
-
+    plt.errorbar(ranks, stabilities, stds, marker='o', capsize=4, label='CP Stability Score')
     plt.xlabel("Rank", fontsize=14)
     plt.ylabel("Stability (a.u.)", fontsize=14)
     plt.ylim(0, 1.2)
     plt.axhline(0.9, 0, 100, ls='--', color='r')
     plt.text(min(ranks), 0.91, '0.9', color='r')
-    plt.title("CP Rank Stability (Standard ALS)", fontsize=14)
+    plt.title(f"CP Rank Stability{title_suffix}", fontsize=14)
     plt.grid(alpha=0.5, ls='--')
     plt.minorticks_on()
     plt.xticks(ranks)
     plt.legend(framealpha=0, loc='upper right')
     plt.tight_layout()
+    return plt.gcf()
 
 
-def fit_plot(ranks, fits, stds):
+def fit_plot(ranks, fits, stds, title_suffix=""):
     '''
     Plots the fit (R²) scores against ranks.
-
-    Parameters:
-    ranks : list
-        List of ranks.
-    fits : list
-        List of R² scores.
-    stds : list
-        List of standard deviations.
     '''
-
     plt.figure(figsize=(10, 6))
-
-    plt.errorbar(ranks, fits, stds, marker='s', color='green',
-                 capsize=4, label='R² Score')
-
+    plt.errorbar(ranks, fits, stds, marker='s', color='green', capsize=4, label='R² Score')
     plt.xlabel("Rank", fontsize=14)
     plt.ylabel("R² (Variance Explained)", fontsize=14)
     plt.ylim(0, 1.05)
-    plt.title("CP Decomposition Fit vs Rank", fontsize=14)
+    plt.title(f"CP Decomposition Fit vs Rank{title_suffix}", fontsize=14)
     plt.grid(alpha=0.5, ls='--')
     plt.minorticks_on()
     plt.xticks(ranks)
     plt.legend(framealpha=0, loc='lower right')
     plt.tight_layout()
+    return plt.gcf()
 
 
 def kron_mat_ten(matrices, X):
@@ -347,67 +358,74 @@ def kron_mat_ten(matrices, X):
     return Y
 
 
-def corcondia(tensor_data, rank=1, init='random'):
+def corcondia(tensor_data, rank=1, init='random', non_negative_modes=None):
     '''
     Computes CORCONDIA (Core Consistency Diagnostic) for CP decomposition.
+    Works with 3-mode or higher order tensors.
     
     Parameters:
     tensor_data : torch.Tensor
-        Input tensor.
+        Input tensor (any order >= 3).
     rank : int
         Rank for decomposition.
     init : str
         Initialization method.
+    non_negative_modes : list, optional
+        Modes that should be non-negative.
     
     Returns:
     cc : float
         CORCONDIA score (100 = perfect trilinear structure).
     '''
+    n_modes = len(tensor_data.shape)
     
-    # Standard CP decomposition
-    cp_tensor = parafac(
+    if n_modes < 3:
+        raise ValueError(f"CORCONDIA requires at least 3-mode tensor, got {n_modes}-mode")
+    
+    # Run decomposition
+    cp_tensor = run_parafac(
         tensor_data,
         rank=rank,
-        init=init,
-        n_iter_max=5000,
-        tol=1e-8,
-        normalize_factors=True
+        non_negative_modes=non_negative_modes,
+        random_state=42
     )
     
     _, factors = cp_tensor
     
-    A, B, C, D = factors
+    # SVD of each factor and compute transformations
+    Us = []
+    SIs = []
+    Vhs = []
     
-    # SVD of each factor
-    UA, SA, VAh = torch.linalg.svd(A, full_matrices=False)
-    UB, SB, VBh = torch.linalg.svd(B, full_matrices=False)
-    UC, SC, VCh = torch.linalg.svd(C, full_matrices=False)
-    UD, SD, VDh = torch.linalg.svd(D, full_matrices=False)
+    for factor in factors:
+        U, S, Vh = torch.linalg.svd(factor, full_matrices=False)
+        Us.append(U[:, :rank])
+        SI = torch.linalg.pinv(torch.diag(S[:rank]))
+        SIs.append(SI)
+        Vhs.append(Vh[:rank, :])
     
-    # Pseudo-inverse of singular value matrices
-    SaI = torch.linalg.pinv(torch.diag(SA[:rank]))
-    SbI = torch.linalg.pinv(torch.diag(SB[:rank]))
-    ScI = torch.linalg.pinv(torch.diag(SC[:rank]))
-    SdI = torch.linalg.pinv(torch.diag(SD[:rank]))
-
     # Compute core tensor G
-    y = kron_mat_ten([UA[:, :rank].T, UB[:, :rank].T, UC[:, :rank].T, UD[:, :rank].T], tensor_data)
-    z = kron_mat_ten([SaI, SbI, ScI, SdI], y)
-    G = kron_mat_ten([VAh[:rank, :], VBh[:rank, :], VCh[:rank, :], VDh[:rank, :]], z)
+    y = kron_mat_ten([U.T for U in Us], tensor_data)
+    z = kron_mat_ten(SIs, y)
+    G = kron_mat_ten(Vhs, z)
     
-    # Ideal superdiagonal core tensor
-    C_ideal = torch.zeros((rank, rank, rank, rank), device=tensor_data.device)
+    # Ideal superdiagonal core tensor (works for any number of modes)
+    ideal_shape = tuple([rank] * n_modes)
+    C_ideal = torch.zeros(ideal_shape, device=tensor_data.device)
     for i in range(rank):
-        C_ideal[i, i, i, i] = 1
+        idx = tuple([i] * n_modes)
+        C_ideal[idx] = 1
     
-    # Compute CORCONDIA
+    # Compute CORCONDIA with correct normalization
     diff_sq = torch.sum((G - C_ideal) ** 2)
-    cc = 100 * (1 - (diff_sq / rank))
+    ideal_norm_sq = torch.sum(C_ideal ** 2)  # = rank
+    cc = 100 * (1 - (diff_sq / ideal_norm_sq))
     
     return cc.detach().cpu().item()
 
 
-def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, verbose=1):
+def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, 
+                   non_negative_modes=None, verbose=1):
     '''
     Run stability and fit analysis across multiple ranks.
     
@@ -418,6 +436,8 @@ def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, verbose=1):
         Ranks to test.
     n_repeats : int
         Number of repeats per rank.
+    non_negative_modes : list, optional
+        Modes that should be non-negative (e.g., [1, 2] for frequency and time).
     verbose : int
         Verbosity level.
     
@@ -425,21 +445,33 @@ def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, verbose=1):
     results : dict
         Dictionary with stability and fit results.
     '''
-    
     stabilities = []
     stab_stds = []
     fits = []
     fit_stds = []
     
+    if verbose and non_negative_modes:
+        print(f"Using non-negative constraints on modes: {non_negative_modes}")
+    
     for rank in ranks:
         if verbose:
             print(f"\n=== Rank {rank} ===")
         
-        stab, stab_std = rank_stability(tensor_data, rank, n_repeats=n_repeats, verbose=verbose)
+        stab, stab_std = rank_stability(
+            tensor_data, rank, 
+            n_repeats=n_repeats, 
+            non_negative_modes=non_negative_modes,
+            verbose=verbose
+        )
         stabilities.append(stab)
         stab_stds.append(stab_std)
         
-        fit, fit_std = rank_fit(tensor_data, rank, n_repeats=n_repeats, verbose=verbose)
+        fit, fit_std = rank_fit(
+            tensor_data, rank, 
+            n_repeats=n_repeats,
+            non_negative_modes=non_negative_modes,
+            verbose=verbose
+        )
         fits.append(fit)
         fit_stds.append(fit_std)
         
@@ -451,7 +483,53 @@ def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, verbose=1):
         'stabilities': stabilities,
         'stab_stds': stab_stds,
         'fits': fits,
-        'fit_stds': fit_stds
+        'fit_stds': fit_stds,
+        'non_negative_modes': non_negative_modes
     }
     
     return results
+
+
+def suggest_rank(results, stability_threshold=0.85, fit_threshold=0.8):
+    """
+    Suggest optimal rank based on stability and fit criteria.
+    
+    Parameters:
+    results : dict
+        Output from rank_selection().
+    stability_threshold : float
+        Minimum acceptable stability (default 0.85).
+    fit_threshold : float
+        Minimum acceptable R² (default 0.8).
+    
+    Returns:
+    suggested_rank : int or None
+        Suggested rank, or None if no rank meets criteria.
+    """
+    ranks = results['ranks']
+    stabilities = results['stabilities']
+    fits = results['fits']
+    
+    # Find ranks that meet both criteria
+    valid_ranks = []
+    for i, r in enumerate(ranks):
+        if stabilities[i] >= stability_threshold and fits[i] >= fit_threshold:
+            valid_ranks.append((r, stabilities[i], fits[i]))
+    
+    if not valid_ranks:
+        print(f"No rank meets criteria (stability >= {stability_threshold}, R² >= {fit_threshold})")
+        # Suggest highest stable rank
+        stable_ranks = [(r, s, f) for i, (r, s, f) in 
+                        enumerate(zip(ranks, stabilities, fits)) if s >= stability_threshold]
+        if stable_ranks:
+            best = max(stable_ranks, key=lambda x: x[2])  # highest R² among stable
+            print(f"Suggestion: Rank {best[0]} (stability={best[1]:.3f}, R²={best[2]:.3f})")
+            return best[0]
+        return None
+    
+    # Among valid ranks, prefer highest rank 
+    # Or use elbow method: find where fit improvement slows
+    best_rank = max(valid_ranks, key=lambda x: x[2])  # highest R²
+    print(f"Suggested rank: {best_rank[0]} (stability={best_rank[1]:.3f}, R²={best_rank[2]:.3f})")
+    
+    return best_rank[0]
