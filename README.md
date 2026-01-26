@@ -1,6 +1,6 @@
 # Tensor Decompositions for OPM-MEG Analysis
 
-A Python-based toolkit for applying tensor decomposition methods to Optically Pumped Magnetometer (OPM) Magnetoencephalography (MEG) data. This project implements CP/PARAFAC decomposition with rank selection algorithms for analyzing neural time-frequency data.
+A Python-based toolkit for applying tensor decomposition methods to Optically Pumped Magnetometer (OPM) Magnetoencephalography (MEG) data. This project implements CP/PARAFAC decomposition with rank selection algorithms for analysing neural time-frequency data.
 
 ## Overview
 
