@@ -116,14 +116,23 @@ def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None,
     cp_tensor : tuple
         (weights, factors)
     """
+    # Track original device for later
+    original_device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
+    
     if non_negative_modes is not None and len(non_negative_modes) > 0:
+        # constrained_parafac has issues with CUDA tensors - move to CPU
+        if hasattr(tensor_data, 'cpu'):
+            tensor_cpu = tensor_data.cpu()
+        else:
+            tensor_cpu = tensor_data
+            
         # Use constrained_parafac for non-negativity on specific modes
         # API expects dictionary: {mode_index: True/False} or bool for all modes
-        n_modes = len(tensor_data.shape)
+        n_modes = len(tensor_cpu.shape)
         non_negative_dict = {mode: (mode in non_negative_modes) for mode in range(n_modes)}
         
         cp_tensor = constrained_parafac(
-            tensor_data,
+            tensor_cpu,
             rank=rank,
             init="random",
             n_iter_max=n_iter_max,
@@ -134,8 +143,17 @@ def run_parafac(tensor_data, rank, non_negative_modes=None, random_state=None,
             non_negative=non_negative_dict,  # Dictionary {mode: bool}
             verbose=0
         )
+        
+        # Move results back to original device if needed
+        if str(original_device) != 'cpu':
+            weights, factors = cp_tensor
+            if hasattr(weights, 'to'):
+                weights = weights.to(original_device)
+            factors = [f.to(original_device) if hasattr(f, 'to') else f for f in factors]
+            cp_tensor = (weights, factors)
     else:
         # Standard CP decomposition (faster when no constraints needed)
+        # This works fine with CUDA
         cp_tensor = parafac(
             tensor_data,
             rank=rank,
@@ -200,12 +218,15 @@ def rank_stability(tensor_data, rank, mask=None, n_repeats=10,
 
             weights, factors = cp_tensor
             norm_weights, norm_factors = cp_normalize((weights, factors))
-            cpu_weights = norm_weights.detach().cpu()
-            cpu_factors = [f.detach().cpu() for f in norm_factors]
+            cpu_weights = norm_weights.detach().cpu() if hasattr(norm_weights, 'cpu') else norm_weights
+            cpu_factors = [f.detach().cpu() if hasattr(f, 'cpu') else f for f in norm_factors]
             models.append((cpu_weights, cpu_factors))
      
-            # Compute Reconstruction Error
-            rec_tensor = tl.cp_to_tensor((weights, factors))
+            # Compute Reconstruction Error - ensure same device
+            # Move factors to same device as tensor_data for reconstruction
+            weights_dev = weights.to(device) if hasattr(weights, 'to') else weights
+            factors_dev = [f.to(device) if hasattr(f, 'to') else f for f in factors]
+            rec_tensor = tl.cp_to_tensor((weights_dev, factors_dev))
 
             if mask is not None:
                 diff = (tensor_data - rec_tensor) * mask
@@ -292,7 +313,11 @@ def rank_fit(tensor_data, rank, mask=None, n_repeats=5,
                 random_state=i
             )
 
-            rec_tensor = tl.cp_to_tensor(cp_tensor)
+            # Ensure factors are on same device for reconstruction
+            weights, factors = cp_tensor
+            weights_dev = weights.to(device) if hasattr(weights, 'to') else weights
+            factors_dev = [f.to(device) if hasattr(f, 'to') else f for f in factors]
+            rec_tensor = tl.cp_to_tensor((weights_dev, factors_dev))
 
             # Sum of squared residuals
             if mask is not None:
@@ -391,9 +416,13 @@ def corcondia(tensor_data, rank=1, init='random', non_negative_modes=None):
     if n_modes < 3:
         raise ValueError(f"CORCONDIA requires at least 3-mode tensor, got {n_modes}-mode")
     
+    # For CORCONDIA, work on CPU to avoid device issues
+    device = tensor_data.device if hasattr(tensor_data, 'device') else 'cpu'
+    tensor_cpu = tensor_data.cpu() if hasattr(tensor_data, 'cpu') else tensor_data
+    
     # Run decomposition
     cp_tensor = run_parafac(
-        tensor_data,
+        tensor_cpu,
         rank=rank,
         non_negative_modes=non_negative_modes,
         random_state=42,
@@ -402,6 +431,9 @@ def corcondia(tensor_data, rank=1, init='random', non_negative_modes=None):
     )
     
     _, factors = cp_tensor
+    
+    # Ensure factors are on CPU
+    factors = [f.cpu() if hasattr(f, 'cpu') else f for f in factors]
     
     # SVD of each factor and compute transformations
     Us = []
@@ -416,13 +448,13 @@ def corcondia(tensor_data, rank=1, init='random', non_negative_modes=None):
         Vhs.append(Vh[:rank, :])
     
     # Compute core tensor G
-    y = kron_mat_ten([U.T for U in Us], tensor_data)
+    y = kron_mat_ten([U.T for U in Us], tensor_cpu)
     z = kron_mat_ten(SIs, y)
     G = kron_mat_ten(Vhs, z)
     
     # Ideal superdiagonal core tensor (works for any number of modes)
     ideal_shape = tuple([rank] * n_modes)
-    C_ideal = torch.zeros(ideal_shape, device=tensor_data.device)
+    C_ideal = torch.zeros(ideal_shape)  # CPU tensor
     for i in range(rank):
         idx = tuple([i] * n_modes)
         C_ideal[idx] = 1
