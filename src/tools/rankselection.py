@@ -85,7 +85,7 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     return score
 
 
-def run_parafac(tensor_data, rank, random_state=None, n_iter_max=2000, tol=1e-8, init='random'):
+def run_parafac(tensor_data, rank, random_state=None, n_iter_max=2000, tol=1e-8, init='svd'):
     """
     Run CP decomposition.
     
@@ -241,39 +241,6 @@ def rank_r2(tensor_data, rank, n_repeats=5, verbose=0):
     return best_r2, std_r2
 
 
-def stability_plot(ranks, stabilities, stds, title_suffix=""):
-    """Plots the stability scores against ranks."""
-    plt.figure(figsize=(10, 6))
-    plt.errorbar(ranks, stabilities, stds, marker='o', capsize=4, label='Stability Score')
-    plt.xlabel("Rank", fontsize=14)
-    plt.ylabel("Stability", fontsize=14)
-    plt.ylim(0, 1.2)
-    plt.axhline(0.9, ls='--', color='r')
-    plt.text(min(ranks), 0.91, '0.9', color='r')
-    plt.title(f"CP Rank Stability{title_suffix}", fontsize=14)
-    plt.grid(alpha=0.5, ls='--')
-    plt.minorticks_on()
-    plt.xticks(ranks)
-    plt.legend(framealpha=0, loc='upper right')
-    plt.tight_layout()
-    return plt.gcf()
-
-
-def r2_plot(ranks, r2_scores, stds, title_suffix=""):
-    """Plots the R² scores against ranks."""
-    plt.figure(figsize=(10, 6))
-    plt.errorbar(ranks, r2_scores, stds, marker='s', color='green', capsize=4, label='R²')
-    plt.xlabel("Rank", fontsize=14)
-    plt.ylabel("R² (Variance Explained)", fontsize=14)
-    plt.ylim(0, 1.05)
-    plt.title(f"CP Decomposition R² vs Rank{title_suffix}", fontsize=14)
-    plt.grid(alpha=0.5, ls='--')
-    plt.minorticks_on()
-    plt.xticks(ranks)
-    plt.legend(framealpha=0, loc='lower right')
-    plt.tight_layout()
-    return plt.gcf()
-
 
 def kron_mat_ten(matrices, X):
     """Applies Kronecker-like transformation to tensor."""
@@ -282,56 +249,6 @@ def kron_mat_ten(matrices, X):
         Y = mode_dot(Y, M, mode)
     return Y
 
-
-def corcondia(tensor_data, rank=1):
-    """
-    Computes CORCONDIA (Core Consistency Diagnostic) for CP decomposition.
-    
-    Parameters:
-    tensor_data : torch.Tensor
-        Input tensor (order >= 3).
-    rank : int
-        Rank for decomposition.
-    
-    Returns:
-    cc : float
-        CORCONDIA score (100 = perfect trilinear structure).
-    """
-    n_modes = len(tensor_data.shape)
-    
-    if n_modes < 3:
-        raise ValueError(f"CORCONDIA requires at least 3-mode tensor, got {n_modes}-mode")
-    
-    tensor_cpu = tensor_data.cpu() if hasattr(tensor_data, 'cpu') else tensor_data
-    
-    cp_tensor = run_parafac(tensor_cpu, rank=rank, random_state=42, n_iter_max=5000)
-    _, factors = cp_tensor
-    
-    factors = [f.cpu() if hasattr(f, 'cpu') else f for f in factors]
-    
-    Us, SIs, Vhs = [], [], []
-    for factor in factors:
-        U, S, Vh = torch.linalg.svd(factor, full_matrices=False)
-        Us.append(U[:, :rank])
-        SIs.append(torch.linalg.pinv(torch.diag(S[:rank])))
-        Vhs.append(Vh[:rank, :])
-    
-    y = kron_mat_ten([U.T for U in Us], tensor_cpu)
-    z = kron_mat_ten(SIs, y)
-    G = kron_mat_ten(Vhs, z)
-    
-    # Ideal superdiagonal core tensor
-    ideal_shape = tuple([rank] * n_modes)
-    C_ideal = torch.zeros(ideal_shape)
-    for i in range(rank):
-        idx = tuple([i] * n_modes)
-        C_ideal[idx] = 1
-    
-    diff_sq = torch.sum((G - C_ideal) ** 2)
-    ideal_norm_sq = torch.sum(C_ideal ** 2)
-    cc = 100 * (1 - (diff_sq / ideal_norm_sq))
-    
-    return cc.item()
 
 
 def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, verbose=1):
@@ -379,43 +296,3 @@ def rank_selection(tensor_data, ranks=range(1, 11), n_repeats=10, verbose=1):
     }
 
 
-def suggest_rank(results, stability_threshold=0.85, r2_threshold=0.8):
-    """
-    Suggest optimal rank based on stability and R² criteria.
-    
-    Parameters:
-    results : dict
-        Output from rank_selection().
-    stability_threshold : float
-        Minimum acceptable stability (default 0.85).
-    r2_threshold : float
-        Minimum acceptable R² (default 0.8).
-    
-    Returns:
-    suggested_rank : int or None
-    """
-    ranks = results['ranks']
-    stabilities = results['stabilities']
-    r2_scores = results['r2_scores']
-    
-    # Find ranks that meet both criteria
-    valid_ranks = []
-    for i, r in enumerate(ranks):
-        if stabilities[i] >= stability_threshold and r2_scores[i] >= r2_threshold:
-            valid_ranks.append((r, stabilities[i], r2_scores[i]))
-    
-    if not valid_ranks:
-        print(f"No rank meets criteria (stability >= {stability_threshold}, R² >= {r2_threshold})")
-        # Suggest highest stable rank
-        stable_ranks = [(r, s, f) for i, (r, s, f) in 
-                        enumerate(zip(ranks, stabilities, r2_scores)) if s >= stability_threshold]
-        if stable_ranks:
-            best = max(stable_ranks, key=lambda x: x[2])
-            print(f"Suggestion: Rank {best[0]} (stability={best[1]:.3f}, R²={best[2]:.3f})")
-            return best[0]
-        return None
-    
-    best_rank = max(valid_ranks, key=lambda x: x[2])
-    print(f"Suggested rank: {best_rank[0]} (stability={best_rank[1]:.3f}, R²={best_rank[2]:.3f})")
-    
-    return best_rank[0]
