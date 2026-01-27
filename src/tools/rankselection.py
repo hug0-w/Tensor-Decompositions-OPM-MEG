@@ -85,7 +85,7 @@ def similarity_score(cp_tensor_A, cp_tensor_B):
     return score
 
 
-def run_parafac(tensor_data, rank, random_state=None, n_iter_max=2000, tol=1e-8, init='svd'):
+def run_parafac(tensor_data, rank, random_state=None, n_iter_max=2000, tol=1e-8, init='random'):
     """
     Run CP decomposition.
     
