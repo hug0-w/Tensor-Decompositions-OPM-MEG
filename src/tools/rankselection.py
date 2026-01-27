@@ -120,11 +120,13 @@ def run_parafac(tensor_data, rank, random_state=None, n_iter_max=2000, tol=1e-8,
     return cp_tensor
 
 
-def rank_stability(tensor_data, rank, n_repeats=10, verbose=0):
+def rank_stability(tensor_data, rank, n_repeats=10, error_threshold=1.05, verbose=0):
     """
     Evaluates the stability of CP decomposition at a given rank.
 
     Parameters:
+     error_threshold : float
+    Only include models with error < best_error * error_threshold
     tensor_data : torch.Tensor
         Input tensor data.
     rank : int
@@ -172,17 +174,32 @@ def rank_stability(tensor_data, rank, n_repeats=10, verbose=0):
     if not models:
         return 0.0, 0.0
 
-    # Identify best model
-    best_idx = np.argmin(errors)
+   # After the for loop, before "Identify best model"
+    
+    errors = np.array(errors)
+    best_error = np.min(errors)
+    
+    # Filter to only well-converged models
+    good_mask = errors < (best_error * error_threshold)
+    good_indices = np.where(good_mask)[0]
+    
+    if verbose:
+        print(f"  {len(good_indices)}/{len(models)} models within {error_threshold}x of best error")
+
+    if len(good_indices) < 2:
+        return 1.0, 0.0
+
+    # Best model among good ones
+    best_idx = good_indices[np.argmin(errors[good_indices])]
     best_model = models[best_idx]
 
-    # Compare all models to the best model
+    # Compare only good models
     similarities = []
-    for i, model in enumerate(models):
+    for i in good_indices:
         if i == best_idx:
             similarities.append(1.0)
         else:
-            score = similarity_score(best_model, model)
+            score = similarity_score(best_model, models[i])
             similarities.append(score)
 
     mean_stability = np.mean(similarities, dtype=np.float32)
